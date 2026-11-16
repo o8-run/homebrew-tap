@@ -86,8 +86,10 @@ jobs:
           set -euo pipefail
           sed -i -E "s/^  version \".*\"$/  version \"$VERSION\"/; s/^  sha256 \"[0-9a-f]{64}\"$/  sha256 \"$SHA256\"/" Casks/o8.rb
           git diff --stat; git diff
-          if [ "$(git diff --numstat Casks/o8.rb | awk '{print $1}')" != "2" ]; then
-            echo "::error::Expected exactly the version and sha256 lines to change"; exit 1
+          # Only the version and sha256 lines may change, and both must now hold the new values.
+          if ! grep -qx "  version \"$VERSION\"" Casks/o8.rb || ! grep -qx "  sha256 \"$SHA256\"" Casks/o8.rb \
+            || [ "$(git diff --numstat Casks/o8.rb | awk '{print $1}')" -gt 2 ]; then
+            echo "::error::The cask did not take the new version and sha256 cleanly"; exit 1
           fi
           if [ "${DRY_RUN:-false}" = "true" ]; then echo "Dry run: not pushing."; exit 0; fi
           git config user.name "github-actions[bot]"
