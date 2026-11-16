@@ -1,0 +1,30 @@
+cask "o8" do
+  version "0.1.820"
+  sha256 "8f280b8d34203a665b6ebab8389f89d942d9b608f2262bf6f6cde635bf1de2c2"
+
+  url "https://github.com/o8-run/o8/releases/download/v#{version}/o8_#{version}_universal.dmg",
+      verified: "github.com/o8-run/o8/"
+  name "o8"
+  desc "Review and merge layer for coding agents"
+  homepage "https://o8.run/"
+
+  livecheck do
+    url :url
+    strategy :github_latest
+  end
+
+  auto_updates true
+  depends_on macos: :sonoma
+
+  app "o8.app"
+
+  zap trash: [
+    "~/.o8",
+    "~/Library/Application Support/ai.o8.desktop",
+    "~/Library/Application Support/o8",
+    "~/Library/Caches/ai.o8.desktop",
+    "~/Library/Logs/ai.o8.desktop",
+    "~/Library/Preferences/ai.o8.desktop.plist",
+    "~/Library/WebKit/ai.o8.desktop",
+  ]
+end
