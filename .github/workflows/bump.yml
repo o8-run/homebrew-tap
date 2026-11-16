@@ -1,0 +1,96 @@
+name: Bump o8
+
+# o8's release script dispatches this after each stable release. The daily run
+# catches a release whose dispatch did not arrive.
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Stable o8 version, such as 0.1.822. Empty means the latest stable release.'
+        required: false
+        type: string
+      dry_run:
+        description: 'Check and show the change without pushing it'
+        required: false
+        type: boolean
+        default: false
+  schedule:
+    - cron: '17 9 * * *'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: bump-o8
+  cancel-in-progress: false
+
+jobs:
+  bump:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Pick the version
+        id: pick
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REQUESTED: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          if [ -n "${REQUESTED:-}" ]; then
+            version="${REQUESTED#v}"
+            # Only a published stable release counts, never a prerelease or draft.
+            gh release view "v$version" --repo o8-run/o8 --json isPrerelease,isDraft \
+              -q 'if .isPrerelease or .isDraft then error("not a stable release") else "ok" end' >/dev/null
+          else
+            version="$(gh release view --repo o8-run/o8 --json tagName -q .tagName)"
+            version="${version#v}"
+          fi
+          if ! printf '%s' "$version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "::error::Not a stable version: $version"; exit 1
+          fi
+          current="$(sed -n 's/^  version "\(.*\)"$/\1/p' Casks/o8.rb)"
+          echo "current=$current wanted=$version"
+          if [ "$current" = "$version" ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"; echo "Already at $version."; exit 0
+          fi
+          newest="$(printf '%s\n%s\n' "$current" "$version" | sort -V | tail -1)"
+          if [ "$newest" != "$version" ]; then
+            echo "::error::Refusing to move the cask back from $current to $version"; exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "skip=false" >> "$GITHUB_OUTPUT"
+
+      - name: Hash the installer
+        id: hash
+        if: steps.pick.outputs.skip == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.pick.outputs.version }}
+        run: |
+          set -euo pipefail
+          asset="o8_${VERSION}_universal.dmg"
+          gh release download "v$VERSION" --repo o8-run/o8 --pattern "$asset" --dir "$RUNNER_TEMP"
+          size="$(stat -c %s "$RUNNER_TEMP/$asset")"
+          if [ "$size" -lt 10000000 ]; then echo "::error::$asset is only $size bytes"; exit 1; fi
+          echo "sha256=$(sha256sum "$RUNNER_TEMP/$asset" | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+
+      - name: Update the cask
+        if: steps.pick.outputs.skip == 'false'
+        env:
+          VERSION: ${{ steps.pick.outputs.version }}
+          SHA256: ${{ steps.hash.outputs.sha256 }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          set -euo pipefail
+          sed -i -E "s/^  version \".*\"$/  version \"$VERSION\"/; s/^  sha256 \"[0-9a-f]{64}\"$/  sha256 \"$SHA256\"/" Casks/o8.rb
+          git diff --stat; git diff
+          if [ "$(git diff --numstat Casks/o8.rb | awk '{print $1}')" != "2" ]; then
+            echo "::error::Expected exactly the version and sha256 lines to change"; exit 1
+          fi
+          if [ "${DRY_RUN:-false}" = "true" ]; then echo "Dry run: not pushing."; exit 0; fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -am "o8 $VERSION"
+          git push origin HEAD:main
