@@ -1,6 +1,6 @@
 cask "o8" do
-  version "0.1.820"
-  sha256 "8f280b8d34203a665b6ebab8389f89d942d9b608f2262bf6f6cde635bf1de2c2"
+  version "0.1.823"
+  sha256 "d58c6a7d30f00f2b3e086c9bdabfef26ff029ac63cb13ec37010f3af39db8deb"
 
   url "https://github.com/o8-run/o8/releases/download/v#{version}/o8_#{version}_universal.dmg",
       verified: "github.com/o8-run/o8/"
